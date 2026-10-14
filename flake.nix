@@ -157,7 +157,7 @@
                 python-scripts = config.legacyPackages.llamaPackages.python-scripts;
               }
               // lib.optionalAttrs pkgs.stdenv.isLinux {
-                cuda = config.legacyPackages.llamaPackagesCuda.llama-cpp;
+                cuda = config.legacyPackages.llamaPackagesCuda.llama-cpp.override { useBlas = true; };
 
                 mpi-cpu = config.packages.default.override { useMpi = true; };
                 mpi-cuda = config.packages.default.override { useMpi = true; };

@@ -11,6 +11,7 @@
   git,
   mpi,
   blas,
+  openblas,
   cudaPackages,
   autoAddDriverRunpath,
   darwin,
@@ -95,6 +96,8 @@ let
     cuda_cccl # <nv/target>
     libcublas
   ];
+
+  blasBuildInput = if useCuda then openblas else blas;
 
   rocmBuildInputs = with rocmPackages; [
     clr
@@ -188,7 +191,7 @@ effectiveStdenv.mkDerivation (finalAttrs: {
     ++ optionals useCuda cudaBuildInputs
     ++ optionals useMpi [ mpi ]
     ++ optionals useRocm rocmBuildInputs
-    ++ optionals useBlas [ blas ]
+    ++ optionals useBlas [ blasBuildInput ]
     ++ optionals useVulkan vulkanBuildInputs
     ++ [ openssl ];
 
@@ -200,6 +203,7 @@ effectiveStdenv.mkDerivation (finalAttrs: {
       (cmakeBool "CMAKE_SKIP_BUILD_RPATH" true)
       (cmakeBool "GGML_NATIVE" false)
       (cmakeBool "GGML_BLAS" useBlas)
+      (lib.cmakeFeature "GGML_BLAS_VENDOR" (if useCuda then "OpenBLAS" else "Generic"))
       (cmakeBool "GGML_CUDA" useCuda)
       (cmakeBool "GGML_HIP" useRocm)
       (cmakeBool "GGML_METAL" useMetalKit)
