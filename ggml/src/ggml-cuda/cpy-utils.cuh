@@ -186,6 +186,73 @@ static __device__ void quantize_f32_iq4_nl_block(const float * __restrict__ x, b
     y->d = sumq2 > 0 ? sumqx/sumq2 : d;
 }
 
+static __device__ void quantize_f32_ptq1_0_block(const float * __restrict__ x, block_ptq1_0 * __restrict__ y) {
+    float amax = 0.0f;
+    for (int j = 0; j < QK_PTQ1_0; ++j) {
+        const float a = fabsf(x[j]);
+        if (a > amax) amax = a;
+    }
+
+    const float d  = amax;
+    const float id = d > 0.0f ? 1.0f/d : 0.0f;
+
+    y->d = (half)d;
+
+    static const size_t stages[3] = {32, 16, 8};
+    size_t j = 0;
+    for (size_t s = 0; s < 3; ++s) {
+        const size_t c = stages[s];
+        for (; j + c <= sizeof(y->qs); j += c) {
+            for (size_t m = 0; m < c; ++m) {
+                uint8_t q = 0;
+                for (size_t n = 0; n < 5; ++n) {
+                    int xi = lroundf(x[m + n*c] * id) + 1; // -1, 0, 1 -> 0, 1, 2
+                    q *= 3;
+                    q += xi;
+                }
+                // ceiling division (243 == pow(3, 5))
+                q = ((uint16_t)q * 256 + (243 - 1)) / 243;
+                y->qs[j + m] = q;
+            }
+            x += 5*c;
+        }
+    }
+    // 4 elements per byte
+    for (size_t h = 0; h < sizeof(y->qh); ++h) {
+        uint8_t q = 0;
+        for (size_t m = 0; m < 4; ++m) {
+            int xi = lroundf(x[h + m*sizeof(y->qh)] * id) + 1;
+            q *= 3;
+            q += xi;
+        }
+        // shift the first value to the most significant trit
+        q *= 3;
+        q = ((uint16_t)q * 256 + (243 - 1)) / 243;
+        y->qh[h] = q;
+    }
+    x += 4*sizeof(y->qh);
+}
+
+static __device__ void quantize_f32_pq2_0_block(const float * __restrict__ x, block_pq2_0 * __restrict__ y) {
+    float amax = 0.0f;
+    for (int j = 0; j < QK_PQ2_0; ++j) {
+        const float a = fabsf(x[j]);
+        if (a > amax) amax = a;
+    }
+
+    const float d  = amax;
+    const float id = d > 0.0f ? 1.0f/d : 0.0f;
+
+    y->d = (half)d;
+
+    for (int j = 0; j < QK_PQ2_0; ++j) {
+        int q = (int)roundf(x[j] * id) + 1;
+        if (q < 0) q = 0;
+        if (q > 3) q = 3;
+        y->qs[j / 4] |= (uint8_t)(q << ((j % 4) * 2));
+    }
+}
+
 // Wrapper functions for cpy.cu compatibility
 static __device__ void cpy_blck_f32_q4_0(const char * cxi, char * cdsti) {
     quantize_f32_q4_0_block((const float *)cxi, (block_q4_0 *)cdsti);
@@ -209,6 +276,14 @@ static __device__ void cpy_blck_f32_q8_0(const char * cxi, char * cdsti) {
 
 static __device__ void cpy_blck_f32_iq4_nl(const char * cxi, char * cdsti) {
     quantize_f32_iq4_nl_block((const float *)cxi, (block_iq4_nl *)cdsti);
+}
+
+static __device__ void cpy_blck_f32_ptq1_0(const char * cxi, char * cdsti) {
+    quantize_f32_ptq1_0_block((const float *)cxi, (block_ptq1_0 *)cdsti);
+}
+
+static __device__ void cpy_blck_f32_pq2_0(const char * cxi, char * cdsti) {
+    quantize_f32_pq2_0_block((const float *)cxi, (block_pq2_0 *)cdsti);
 }
 
 template<typename src_t, typename dst_t>

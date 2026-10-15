@@ -1460,7 +1460,7 @@ ggml_tensor * llama_kv_cache::cpy_v(ggml_context * ctx, ggml_tensor * v_cur, ggm
     return ggml_set_rows(ctx, v_view, v_cur, v_idxs);
 }
 
-bool llama_kv_cache::load_kv_mean_center(const char * path, bool require_q4_0) {
+bool llama_kv_cache::load_kv_mean_center(const char * path) {
     GGML_ASSERT(path != nullptr);
     GGML_ASSERT(k_bar.empty() && "K-cache mean-centering already loaded");
 
@@ -1479,15 +1479,14 @@ bool llama_kv_cache::load_kv_mean_center(const char * path, bool require_q4_0) {
 
     // validate the cache type first, so an unsupported cache type gets its actionable error
     // even when the bias file's basis would also mismatch
-    if (require_q4_0) {
-        for (const auto & layer : layers) {
-            if (layer.k->type != GGML_TYPE_Q4_0) {
-                LLAMA_LOG_ERROR("%s: K-cache mean-centering requires K cache type %s, but layer %d has type %s\n",
-                        __func__, ggml_type_name(GGML_TYPE_Q4_0), layer.il, ggml_type_name(layer.k->type));
-                gguf_free(ctx_gguf);
-                ggml_free(ctx_data);
-                return false;
-            }
+    for (const auto & layer : layers) {
+        const ggml_type kt = layer.k->type;
+        if (kt != GGML_TYPE_Q4_0 && kt != GGML_TYPE_PQ2_0 && kt != GGML_TYPE_PTQ1_0) {
+            LLAMA_LOG_ERROR("%s: K-cache mean-centering requires K cache type q4_0/pq2_0/ptq_0, but layer %d has type %s\n",
+                    __func__, layer.il, ggml_type_name(kt));
+            gguf_free(ctx_gguf);
+            ggml_free(ctx_data);
+            return false;
         }
     }
 

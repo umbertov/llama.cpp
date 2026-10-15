@@ -200,7 +200,7 @@ public:
     // validate the softmax-invariance argument without confounding it with quantization error.
     //
     // returns false (and logs an error) on failure; the cache is left with centering disabled.
-    bool load_kv_mean_center(const char * path, bool require_q4_0 = true);
+    bool load_kv_mean_center(const char * path);
 
     //
     // preparation API

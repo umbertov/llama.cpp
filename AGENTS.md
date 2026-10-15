@@ -1,5 +1,11 @@
 # Instructions for llama.cpp
 
+> [!NOTE]
+>
+> Issue tracking: use `./issues/` as the project tracker. For every active task, keep one file
+> there (e.g. `issues/<slug>.md`) with current status, findings, open questions, and the build/test
+> commands. Update it as work progresses.
+
 > [!IMPORTANT]
 >
 > AI-generated code is allowed. What is **not** allowed is submitting code you do not understand. You are 100% responsible for every line, however it was produced.
