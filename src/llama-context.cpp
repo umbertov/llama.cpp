@@ -506,6 +506,14 @@ llama_context::llama_context(
                         "(not recurrent-only or MLA/DSA memory types)");
             }
             for (auto * kv : kvs) {
+                for (uint32_t il : kv->get_layer_ids()) {
+                    ggml_type kt = kv->get_k_storage(il)->type;
+                    if (kt != GGML_TYPE_Q4_0 && kt != GGML_TYPE_PQ2_0 && kt != GGML_TYPE_PTQ1_0) {
+                        throw std::runtime_error(
+                            "--kv-mean-center: K cache must be q4_0, pq2_0 or ptq_0, "
+                            "got " + std::string(ggml_type_name(kt)) + " at layer " + std::to_string(il));
+                    }
+                }
                 if (!kv->load_kv_mean_center(params.path_kv_mean_center)) {
                     throw std::runtime_error("failed to load K-cache mean-centering bias file");
                 }

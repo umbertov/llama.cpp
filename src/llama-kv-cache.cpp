@@ -1477,19 +1477,6 @@ bool llama_kv_cache::load_kv_mean_center(const char * path) {
         return false;
     }
 
-    // validate the cache type first, so an unsupported cache type gets its actionable error
-    // even when the bias file's basis would also mismatch
-    for (const auto & layer : layers) {
-        const ggml_type kt = layer.k->type;
-        if (kt != GGML_TYPE_Q4_0 && kt != GGML_TYPE_PQ2_0 && kt != GGML_TYPE_PTQ1_0) {
-            LLAMA_LOG_ERROR("%s: K-cache mean-centering requires K cache type q4_0/pq2_0/ptq_0, but layer %d has type %s\n",
-                    __func__, layer.il, ggml_type_name(kt));
-            gguf_free(ctx_gguf);
-            ggml_free(ctx_data);
-            return false;
-        }
-    }
-
     // the bias is only valid in the basis it was measured in: a bias calibrated with the
     // Hadamard K-cache rotation active must be applied with the rotation active, and vice
     // versa. a mismatched basis measurably degrades quantization quality instead of

@@ -212,6 +212,17 @@ gh pr comment
 gh issue create
 ```
 
+Tool calls:
+
+```sh
+# GOOD: batch independent reads/searches in one turn to squeeze the most out of each turn.
+# Run every grep/glob/read/webfetch in parallel; pick queries so each one answers a
+# different question. Only serialize when a later call needs an earlier result.
+
+# BAD: fire one trivial call per turn while several independent calls would have
+# gathered the same context in a single parallel batch.
+```
+
 ## Useful Resources
 
 To conserve context space, load these resources as needed:

@@ -1,8 +1,8 @@
 // Tests for K-cache mean-centering (see docs/kv-mean-center.md):
 //
 //  (a) regression safety: with centering disabled (the default / no bias file loaded), behavior
-//      is unaffected by the feature's presence, including when the K cache type is the one the
-//      feature targets (GGML_TYPE_Q4_0).
+//      is unaffected by the feature's presence, including when the K cache type is one of the
+//      accepted quantized types (Q4_0, PQ2_0, PTQ1_0).
 //  (b) softmax-invariance: subtracting a fixed nonzero bias from every cached K vector before
 //      it is written into the cache does not change the model's output logits, up to ordinary
 //      fp32 rounding. This is tested against an *unquantized* (F32) K cache so that the
@@ -176,8 +176,8 @@ static double nmse(const std::vector<float> & a, const std::vector<float> & b) {
     } while (0)
 
 // (a) regression safety: centering never engages unless a bias file is explicitly loaded, and
-// its mere availability as a (dormant) code path does not perturb anything -- not even for a
-// Q4_0 K cache, which is the type the feature is scoped to.
+// its mere availability as a (dormant) code path does not perturb anything -- not even for the
+// quantized K caches (Q4_0, PQ2_0, PTQ1_0) the feature is scoped to.
 static void test_regression_safety() {
     gguf_context_ptr gguf_ctx = build_llama_gguf_ctx();
     llama_model_ptr  model    = build_model(gguf_ctx.get(), /*seed=*/ 1234);
@@ -199,23 +199,26 @@ static void test_regression_safety() {
         TEST_ASSERT(logits1[i] == logits2[i]);
     }
 
-    // smoke check: a Q4_0 K cache (the type this feature targets) with no bias file loaded
-    // must decode normally and produce finite output -- cpy_k()'s new code path must be a
-    // true no-op when centering was never enabled (k_bar.empty())
-    llama_context_ptr ctx3 = build_context(model.get(), GGML_TYPE_Q4_0);
-    TEST_ASSERT(ctx3 != nullptr);
-    const std::vector<float> logits3 = decode_and_get_logits(ctx3.get(), tokens);
-    for (float v : logits3) {
-        TEST_ASSERT(std::isfinite(v));
+    // smoke checks: each accepted quantized K cache type with no bias file loaded must
+    // decode normally and produce finite output -- cpy_k()'s new code path must be a true
+    // no-op when centering was never enabled (k_bar.empty())
+    for (const ggml_type type : { GGML_TYPE_Q4_0, GGML_TYPE_PQ2_0, GGML_TYPE_PTQ1_0 }) {
+        llama_context_ptr ctx_q = build_context(model.get(), type);
+        TEST_ASSERT(ctx_q != nullptr);
+        const std::vector<float> logits_q = decode_and_get_logits(ctx_q.get(), tokens);
+        for (float v : logits_q) {
+            TEST_ASSERT(std::isfinite(v));
+        }
     }
 
     LOG_INF("%s: OK\n", __func__);
 }
 
 // (a2) the public, CLI-facing entry point (llama_context_params::path_kv_mean_center, as set by
-// --kv-mean-center) must hard-reject any K cache type other than GGML_TYPE_Q4_0, and must
-// succeed end-to-end (including a real decode) when the type matches.
-static void test_q4_0_gate() {
+// --kv-mean-center) must hard-reject any K cache type outside the allowed set
+// {Q4_0, PQ2_0, PTQ1_0}, and must succeed end-to-end (including a real decode) when the type
+// is one of the accepted, quantized types.
+static void test_mean_center_gate() {
     gguf_context_ptr gguf_ctx = build_llama_gguf_ctx();
     llama_model_ptr  model    = build_model(gguf_ctx.get(), /*seed=*/ 2024);
 
@@ -229,8 +232,9 @@ static void test_q4_0_gate() {
         layers.push_back(std::move(layer));
     }
 
-    // this synthetic model has a 64-wide K head, so a Q4_0 K cache activates the Hadamard
-    // rotation; the bias must be marked as measured in the rotated basis to be accepted there
+    // this synthetic model has a 128-wide K head, so Q4_0 (block 32), PQ2_0 (block 128) and
+    // PTQ1_0 (block 128) K caches all activate the Hadamard rotation; the bias must be marked
+    // as measured in the rotated basis to be accepted
     const std::string tmp_path = "test-kv-mean-center-gate.gguf";
     TEST_ASSERT(common_kv_mean_center_write(tmp_path, layers, /*k_rot=*/true));
 
@@ -244,21 +248,24 @@ static void test_q4_0_gate() {
     llama_context_ptr ctx_bad = build_context(model.get(), GGML_TYPE_F16, tmp_path_unrot.c_str());
     TEST_ASSERT(ctx_bad == nullptr);
 
-    // a bias measured in the unrotated basis must be rejected by a rotated (Q4_0) K cache:
-    // a basis mismatch degrades quantization quality instead of improving it
+    // a bias measured in the unrotated basis must be rejected by a rotated K cache (all three
+    // accepted types rotate this test model): a basis mismatch degrades quantization quality
+    // instead of improving it
     llama_context_ptr ctx_mismatch = build_context(model.get(), GGML_TYPE_Q4_0, tmp_path_unrot.c_str());
     TEST_ASSERT(ctx_mismatch == nullptr);
     remove(tmp_path_unrot.c_str());
 
-    // Q4_0 K cache + --kv-mean-center must succeed end-to-end, through the real public entry
-    // point (not the require_q4_0=false test seam used in test_softmax_invariance)
-    llama_context_ptr ctx_good = build_context(model.get(), GGML_TYPE_Q4_0, tmp_path.c_str());
-    TEST_ASSERT(ctx_good != nullptr);
+    // each accepted K cache type + --kv-mean-center must succeed end-to-end, through the real
+    // public entry point (not the test seam used in test_softmax_invariance)
+    for (const ggml_type type : { GGML_TYPE_Q4_0, GGML_TYPE_PQ2_0, GGML_TYPE_PTQ1_0 }) {
+        llama_context_ptr ctx_good = build_context(model.get(), type, tmp_path.c_str());
+        TEST_ASSERT(ctx_good != nullptr);
 
-    const std::vector<llama_token> tokens = make_tokens(16, k_n_vocab, /*seed=*/ 3);
-    const std::vector<float> logits = decode_and_get_logits(ctx_good.get(), tokens);
-    for (float v : logits) {
-        TEST_ASSERT(std::isfinite(v));
+        const std::vector<llama_token> tokens = make_tokens(16, k_n_vocab, /*seed=*/ 3);
+        const std::vector<float> logits = decode_and_get_logits(ctx_good.get(), tokens);
+        for (float v : logits) {
+            TEST_ASSERT(std::isfinite(v));
+        }
     }
 
     remove(tmp_path.c_str());
@@ -303,14 +310,16 @@ static void test_softmax_invariance() {
     TEST_ASSERT(common_kv_mean_center_write(tmp_path, layers));
 
     // centered: same model, fresh F32-K-cache context, bias applied through the exact same
-    // cpy_k() code path -- bypassing the public --kv-mean-center gate (require_q4_0 = false)
-    // since this test is specifically about validating the math on an unquantized cache
+    // cpy_k() code path -- bypassing the public --kv-mean-center cache-type gate since this
+    // test is specifically about validating the math on an unquantized cache
     llama_context_ptr ctx_centered = build_context(model.get(), GGML_TYPE_F32);
     TEST_ASSERT(ctx_centered != nullptr);
 
     auto * kv = dynamic_cast<llama_kv_cache *>(llama_get_memory(ctx_centered.get()));
     TEST_ASSERT(kv != nullptr);
-    TEST_ASSERT(kv->load_kv_mean_center(tmp_path.c_str(), /*require_q4_0=*/false));
+    // test seam: load the bias directly, bypassing the public cache-type gate in
+    // llama_init_from_model, to validate the centering math on an unquantized cache
+    TEST_ASSERT(kv->load_kv_mean_center(tmp_path.c_str()));  // type-agnostic, so F32 passes
 
     const std::vector<float> logits_centered = decode_and_get_logits(ctx_centered.get(), tokens);
 
@@ -331,7 +340,7 @@ static void test_softmax_invariance() {
 
 int main() {
     test_regression_safety();
-    test_q4_0_gate();
+    test_mean_center_gate();
     test_softmax_invariance();
 
     return 0;

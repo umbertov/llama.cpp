@@ -188,16 +188,17 @@ public:
     //
     // K-cache mean-centering (see docs/kv-mean-center.md)
     //
-
+    
     // load a per-layer bias file (GGUF, tensors named "kv_bar.blk.<il>.k") and enable
     // mean-centering for every layer it covers: the bias is subtracted from the K vector
     // right before it is written into the cache in cpy_k().
     //
-    // when require_q4_0 is true (the default, used by the --kv-mean-center CLI flag), loading
-    // fails for any layer whose K cache type is not GGML_TYPE_Q4_0, since that is the only case
-    // this feature is intended/validated for. require_q4_0 = false is used by tests to exercise
-    // the exact same subtraction code path against an unquantized (e.g. F32) K cache, in order to
-    // validate the softmax-invariance argument without confounding it with quantization error.
+    // type-agnostic: the fp32 subtraction is valid for any K-cache type. the cache-type
+    // restriction ({q4_0, pq2_0, ptq_0}) is enforced at the public --kv-mean-center path in
+    // llama_context init, which is where the user actually opts into the feature. the direct
+    // call to this method (test seam) exercises the same math on an unquantized (e.g. F32) K
+    // cache to validate the softmax-invariance argument without confounding it with
+    // quantization error.
     //
     // returns false (and logs an error) on failure; the cache is left with centering disabled.
     bool load_kv_mean_center(const char * path);
