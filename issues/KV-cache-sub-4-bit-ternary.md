@@ -1,6 +1,6 @@
 # Sub-4-bit ternary KV cache on CUDA
 
-Status: **partially implemented; end-to-end status needs verification** (updated 2026-10-16).
+Status: **PQ2_0 CUDA smoke test passes; PTQ1_0 read path remains unimplemented** (updated 2026-10-16).
 
 Work started at [`28ffe0d36`](../commit/28ffe0d3661d6785c48a2301e617bd01435ea97e),
 which added CUDA cache writes and exposed both cache types in the command-line
@@ -11,9 +11,9 @@ native CUDA FlashAttention reads for `PQ2_0`:
   mean-center gate.
 - `3a2be8b9a` — add the `PQ2_0` in-place CUDA FlashAttention path.
 
-These commits are ancestors of the current branch head. Runtime verification
-for the current `PQ2_0` path and implementation of the `PTQ1_0` attention read
-path remain outstanding.
+These commits are ancestors of the current branch head. The `PQ2_0` path has
+now passed a CUDA build and a 9B server smoke test. `PTQ1_0` attention reads
+remain unimplemented.
 
 ## Goal
 
@@ -29,10 +29,10 @@ and CUDA weight operations already exist. `PQ2_0` also now has an in-place CUDA
 FlashAttention implementation in the source tree. `PTQ1_0` does not yet have
 that read path, so CUDA FlashAttention cannot consume that cache type directly.
 
-Source presence does not establish that the current build compiles these
-instances or that runtime dispatch selects them. In particular, `build.sh`
-compiles a configured set of FlashAttention quant pairs; it currently includes
-`pq2_0-pq2_0`, but not `ptq_0-ptq_0`. Build and runtime evidence is still needed.
+The current NixOS build compiles the `pq2_0-pq2_0` pair, and the 9B smoke test
+confirms the target can serve requests with that cache. The evidence is limited
+to the tested model shape and short requests; `ptq_0-ptq_0` is not configured or
+implemented.
 
 ## Current findings
 
@@ -42,6 +42,21 @@ compiles a configured set of FlashAttention quant pairs; it currently includes
   and `fattn-mma-f16.cuh`: the type is admitted by the gate, marked native,
   decoded by a tile loader, dispatched for 128- and 256-wide heads, and has
   kernel instances. `build.sh` also enables the `pq2_0-pq2_0` pair.
+- The first `bash build.sh` attempt failed because the generated PQ2_0 vector
+  FlashAttention instance instantiated unsupported K and V decoders. The
+  build path now omits vector instances for PQ2_0, and native-capable cache
+  shapes bypass vector-kernel selection so decode uses the in-place MMA path.
+- Fixed-seed comparison against `build.old` with Q8_0 K/V exposed two PQ2_0
+  correctness bugs: the first packed block in the native tile loader was read
+  with a two-byte offset, and the CUDA cache writer ORed quantized codes into
+  uncleared bytes. Both were fixed. After rebuilding, the same 40-token prompt
+  produced the same coherent explanation prefix as the Q8_0 baseline; a
+  256-token request remained coherent and reported 88.16 generated tokens/s.
+  A concurrent `nvidia-smi` sample reached 75% GPU utilization with 5,123 MiB
+  allocated. This is a smoke result, not a broad correctness or quality test.
+- The current NixOS build succeeded via `bash build.sh` for CUDA architecture
+  75, including all 547 targets on the initial build and the subsequent CUDA
+  rebuild and links. CMake reported the `pq2_0-pq2_0` FlashAttention pair.
 - The native CUDA FlashAttention implementation only covers the instantiated
   head sizes and tilings; it is not generic support for every CUDA device,
   head shape, or mixed K/V type. The target Bonsai model shape must be checked.
@@ -76,20 +91,14 @@ compiles a configured set of FlashAttention quant pairs; it currently includes
    repeatable quality comparison against the same model with a supported cache
    type. Define acceptable quality and speed thresholds before calling this
    complete.
-5. **NixOS build configuration:** use the repository's `bash build.sh` in the
-   user's NixOS environment. It enters `nix develop .#cuda` and configures
-   CUDA architecture 75 (RTX 2080 Ti). Build success and test results have not
-   been re-established as part of this issue review.
-
 ## Work plan
 
-1. Build with `bash build.sh` and inspect the emitted configuration to confirm
-   CUDA and the `pq2_0-pq2_0` FlashAttention pair are enabled.
-2. Launch the old executable with the Q8_0 KV cache as a baseline, then launch
-   the newly built executable with the PQ2_0 KV cache using the same model and
-   context settings. Compare startup logs, API response, timing, GPU use, and
-   memory use. If attention is not on CUDA, capture the backend support/fallback
-   reason before changing code.
+1. **Done:** build with `bash build.sh` in the NixOS CUDA shell and confirm the
+   `pq2_0-pq2_0` FlashAttention pair compiles for architecture 75.
+2. **Initial smoke test done:** run the Q8_0 baseline and PQ2_0 server with the
+   same prompt, seed, and model. Broader quality/performance comparison and
+   target 27B validation remain. If future runs show attention off the GPU,
+   capture the backend support/fallback reason before changing code.
 3. Implement the `PTQ1_0` loader and explicitly scoped dispatch/instances.
    Add focused tests comparing its tile output with canonical CPU dequantization
    across representative blocks and boundary layouts.
@@ -141,12 +150,11 @@ curl -sS --max-time 60 http://localhost:8080/v1/completions \
   -d '{"prompt":"Explain 1-bit ternary quantization in one plain sentence.","max_tokens":32}'
 ```
 
-Checked on 2026-10-16: the endpoint responded with model
-`prism-ml/Ternary-Bonsai-2-9B-gguf:PQ2_0`; the 32-token request reported
-79.16 generated tokens/s. The completion stopped mid-thought at the token
-limit, so this only confirms API availability and a timing sample. It does not
-prove that the running server was built from the current source, that attention
-stayed on CUDA, or that answer quality is acceptable.
+The initial pre-fix endpoint check returned 79.16 generated tokens/s, but the
+output was not useful and exposed the cache correctness issue. After the
+fixes, the rebuilt server returned 88.16 generated tokens/s for 256 generated
+tokens and sampled up to 75% GPU utilization. See findings above for the
+fixed-seed Q8_0 comparison and the remaining limits of this smoke test.
 
 ## Open questions
 
