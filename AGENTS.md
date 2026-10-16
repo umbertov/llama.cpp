@@ -6,15 +6,10 @@
 > there (e.g. `issues/<slug>.md`) with current status, findings, open questions, and the build/test
 > commands. Update it as work progresses.
 
-> [!IMPORTANT]
->
-> AI-generated code is allowed. What is **not** allowed is submitting code you do not understand. You are 100% responsible for every line, however it was produced.
->
-> Read more: [CONTRIBUTING.md](CONTRIBUTING.md)
-> [!IMPORTANT]
->
 > NOTE: Build takes a lot of time.
 > NOTE: In tool calling, timeout is given as milliseconds (1000 = 1 second, 60000 = 1 minute, 3600000 = 1 hour). Specify a long timeout like 3600000 ms (1 hour)
+
+> NOTE TO AI AGENTS: use the Edit tool to edit files, rather than `sed` and python here-docs.
 
 
 
