@@ -6,10 +6,7 @@
 > there (e.g. `issues/<slug>.md`) with current status, findings, open questions, and the build/test
 > commands. Update it as work progresses.
 
-> NOTE: Build takes a lot of time.
-> NOTE: In tool calling, timeout is given as milliseconds (1000 = 1 second, 60000 = 1 minute, 3600000 = 1 hour). Specify a long timeout like 3600000 ms (1 hour)
-
-> NOTE TO AI AGENTS: use the Edit tool to edit files, rather than `sed` and python here-docs.
+> NOTE: Build takes a lot of time, like 1 hour
 
 
 
