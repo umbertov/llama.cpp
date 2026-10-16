@@ -245,6 +245,10 @@ static __device__ void quantize_f32_pq2_0_block(const float * __restrict__ x, bl
 
     y->d = (half)d;
 
+    for (int j = 0; j < QK_PQ2_0/4; ++j) {
+        y->qs[j] = 0;
+    }
+
     for (int j = 0; j < QK_PQ2_0; ++j) {
         int q = (int)roundf(x[j] * id) + 1;
         if (q < 0) q = 0;

@@ -110,6 +110,11 @@ function(ggml_cuda_fattn_vec_instances DIR OUT_SRCS)
 
     set(SRCS "")
     foreach (COMBINATION IN LISTS FA_COMBINATIONS)
+        # PQ2_0 is read by the native MMA FlashAttention kernel; no vector
+        # FlashAttention implementation exists for this type.
+        if (COMBINATION MATCHES "(^|-)pq2_0(-|$)")
+            continue()
+        endif()
         set(SRC "${DIR}/template-instances/fattn-vec-instance-${COMBINATION}.cu")
         if (NOT EXISTS "${SRC}")
             message(FATAL_ERROR "FlashAttention template instance \"${SRC}\" does not exist")

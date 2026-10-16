@@ -575,15 +575,15 @@ static __device__ __forceinline__ void flash_attn_ext_f16_load_tile_q(
             flash_attn_ext_f16_store_q8_0_block(dst,        d0, q0);
             flash_attn_ext_f16_store_q8_0_block(dst + bs/2, d1, w + 9);
         } else {
-            // PQ2_0: block 0 (128 weights, w0: d + qs[0..15], w8: qs[16..31]);
-            // block 1 (w8: d + nothing, w9..w16: qs). d1 = high half of w[8] (bytes 34-35),
+            // PQ2_0: block 0 (w0: d + qs[0..1], w8: qs[30..31]);
+            // block 1 (w8: d, w9..w16: qs). d1 = high half of w[8] (bytes 34-35),
             // block 1 qs = w[9..16] (bytes 36-67).
             const float d0 = __half2float(__ushort_as_half((unsigned short) (w[0] & 0xFFFF)));
             const float d1 = __half2float(__ushort_as_half((unsigned short) (w[8] >> 16)));
             uint32_t q0[8];
 #pragma unroll
             for (int k = 0; k < 8; ++k) {
-                q0[k] = w[k + 1];
+                q0[k] = __byte_perm(w[k], w[k + 1], 0x5432);
             }
             flash_attn_ext_f16_store_pq2_0_block(dst,        d0, q0);
             flash_attn_ext_f16_store_pq2_0_block(dst + bs/2, d1, w + 9);
