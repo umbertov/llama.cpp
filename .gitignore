@@ -44,6 +44,7 @@
 
 /tags
 /.build/
+!build.sh
 /build*
 /release
 /debug
